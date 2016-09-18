@@ -1,0 +1,12 @@
+<article>
+
+            <h3><a href="{{ entry.get_absolute_url }}">{{ entry.title }}</a></h3>
+
+            <p class="subheader">
+                <time>{{ entry.modified_at|date }}</time>
+            </p>
+
+            <p></p>
+
+            {{ entry.body|linebreaks }}
+</article>
