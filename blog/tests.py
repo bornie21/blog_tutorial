@@ -1,14 +1,16 @@
 from django.test import TestCase
 from django.contrib.auth import get_user_model
+from django_webtest import WebTest
 
-from .models import Entry
+from .models import Entry, Comment
+from .forms import  CommentForm
 
 
 class EntryModelTest(TestCase):
 
     def test_string_representation(self):
-        entry=Entry(title="My entry title")
-        self.assertEqual(str(entry),entry.title)
+        entry = Entry(title="My entry title")
+        self.assertEqual(str(entry), entry.title)
 
     def test_verbose_name_plural(self):
         self.assertEqual(str(Entry._meta.verbose_name_plural), "entries")
@@ -22,8 +24,8 @@ class EntryModelTest(TestCase):
 class ProjectTests(TestCase):
 
     def test_homepage(self):
-        response=self.client.get('/')
-        self.assertEqual(response.status_code,200)
+        response = self.client.get('/')
+        self.assertEqual(response.status_code, 200)
 
 
 class HomepageTests(TestCase):
@@ -33,8 +35,8 @@ class HomepageTests(TestCase):
 
     def test_one_entry(self):
         Entry.objects.create(title='1-title', body='1-body', author=self.user)
-        response=self.client.get('/')
-        self.assertContains(response,'1-title')
+        response = self.client.get('/')
+        self.assertContains(response, '1-title')
 
     def test_two_entries(self):
         Entry.objects.create(title='1-title', body='1-body', author=self.user)
@@ -48,12 +50,13 @@ class HomepageTests(TestCase):
         response = self.client.get('/')
         self.assertContains(response, 'No blog entries yet.')
 
-class SingleBlogEntryTests(TestCase):
+
+class SingleBlogEntryTests(WebTest):
     """Tests for a single blog entry"""
 
     def setUp(self):
-        self.user=get_user_model().objects.create(username='some user')
-        self.entry=Entry.objects.create(title='1-title', body='1-body', author=self.user)
+        self.user = get_user_model().objects.create(username='some user')
+        self.entry = Entry.objects.create(title='1-title', body='1-body', author=self.user)
 
     def test_basic_view(self):
         response = self.client.get(self.entry.get_absolute_url())
@@ -66,3 +69,71 @@ class SingleBlogEntryTests(TestCase):
     def test_body_in_entry(self):
         response = self.client.get(self.entry.get_absolute_url())
         self.assertContains(response, self.entry.body)
+
+    def test_no_comments(self):
+        response = self.client.get(self.entry.get_absolute_url())
+        self.assertContains(response, 'No comments yet.')
+
+    def test_comment_in_entry(self):
+        self.test = Comment.objects.create(entry=self.entry, body='Test Comment')
+        response = self.client.get(self.entry.get_absolute_url())
+        self.assertContains(response, 'Test Comment')
+
+    def test_view_page(self):
+        page = self.app.get(self.entry.get_absolute_url())
+        self.assertEqual(len(page.forms), 1)
+
+    def test_form_error(self):
+        page = self.app.get(self.entry.get_absolute_url())
+        page = page.form.submit()
+        self.assertContains(page, "This field is required.")
+
+    def test_form_success(self):
+        page = self.app.get(self.entry.get_absolute_url())
+        page.form['name'] = "Phillip"
+        page.form['email'] = "phillip@example.com"
+        page.form['body'] = "Test comment body."
+        page = page.form.submit()
+        self.assertRedirects(page, self.entry.get_absolute_url())
+
+
+class CommentModelTests(TestCase):
+    def test_string_representation(self):
+        comment = Comment(body="My comment body")
+        self.assertEqual(str(comment), "My comment body")
+
+
+class CommentFormTests(TestCase):
+
+    def setUp(self):
+        user = get_user_model().objects.create_user('test-user')
+        self.entry = Entry.objects.create(author=user, title="My entry title")
+
+    def test_init(self):
+        CommentForm(entry=self.entry)
+
+    def test_init_without_entry(self):
+        with self.assertRaises(KeyError):
+            CommentForm()
+
+    def test_valid_data(self):
+        form = CommentForm({
+            'name': "Turanga Leela",
+            'email': "leela@example.com",
+            'body': "Hi there",
+        }, entry=self.entry)
+        self.assertTrue(form.is_valid())
+        comment = form.save()
+        self.assertEqual(comment.name, "Turanga Leela")
+        self.assertEqual(comment.email, "leela@example.com")
+        self.assertEqual(comment.body, "Hi there")
+        self.assertEqual(comment.entry, self.entry)
+
+    def test_blank_data(self):
+        form = CommentForm({}, entry=self.entry)
+        self.assertFalse(form.is_valid())
+        self.assertEqual(form.errors, {
+            'name': ['This field is required.'],
+            'email': ['This field is required.'],
+            'body': ['This field is required.'],
+        })
